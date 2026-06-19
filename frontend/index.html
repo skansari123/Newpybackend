@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Cloud Chatbot</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 30px auto; padding: 20px; }
+        textarea, input { width: 100%; margin-bottom: 10px; padding: 10px; }
+        button { padding: 10px 20px; background-color: #238636; color: white; border: none; cursor: pointer; }
+        .box { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h2>🧠 Step 1: Bot Ka Dimaag Update Karo</h2>
+    <div class="box">
+        <textarea id="textInfo" rows="4" placeholder="Jo kuch bhi yaad dilana hai, yahan likho..."></textarea>
+        <button onclick="uploadData()">MongoDB Cloud Mein Save Karo</button>
+        <p id="uploadStatus"></p>
+    </div>
+
+    <h2>💬 Step 2: Chat Karo</h2>
+    <div class="box">
+        <input type="text" id="userMessage" placeholder="Apna sawaal pucho...">
+        <button onclick="askBot()">Pucho</button>
+        <p><strong>Jawab:</strong> <span id="botReply">...</span></p>
+    </div>
+
+    <script>
+        // Render par deploy karne ke baad jo link milega, use yahan daalna
+        const BACKEND_URL = "RENDER_BACKEND_URL_HERE"; 
+
+        async function uploadData() {
+            const text = document.getElementById('textInfo').value;
+            const status = document.getElementById('uploadStatus');
+            status.innerText = "Saving...";
+
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/chat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "upload", text_info: text })
+                });
+                const data = await res.json();
+                status.innerText = data.success || data.error;
+            } catch (err) {
+                status.innerText = "Error: Backend connect nahi ho paya!";
+            }
+        }
+
+        async function askBot() {
+            const msg = document.getElementById('userMessage').value;
+            const replyBox = document.getElementById('botReply');
+            replyBox.innerText = "Bot soch raha hai...";
+
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/chat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "ask", message: msg })
+                });
+                const data = await res.json();
+                replyBox.innerText = data.reply || data.error;
+            } catch (err) {
+                replyBox.innerText = "Error: Backend connect nahi ho paya!";
+            }
+        }
+    </script>
+</body>
+</html>
