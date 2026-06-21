@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json());
 
 const MONGO_URL = process.env.MONGO_URL;
-const GROQ_API_KEY = "YOUR_GROQ_API_KEY_HERE";
+const GROQ_API_KEY = "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";
 
 let dbCollection;
 
