@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ⚡ Dono keys ab Render ke Environment Variables se automatic load hongi
+// Dono keys Render ke Environment Variables se automatic load hongi
 const MONGO_URL = process.env.MONGO_URL;
 const GROQ_API_KEY = process.env.GROQ_API_KEY; 
 
@@ -57,9 +57,8 @@ app.post('/api/chat', async (req, res) => {
             if (!message) return res.status(400).json({ error: "Sawaal khali hai!" });
 
             const currentData = await collection.findOne({ _id: "bot_brain" });
-            const knowledgeBase = currentData ? currentData.text : "Koi jankari nahi heli.";
+            const knowledgeBase = currentData ? currentData.text : "Koi jankari nahi mili.";
 
-            // Agar Render par Groq Key set nahi hui toh frontend ko clear error milega
             if (!GROQ_API_KEY) {
                 return res.status(500).json({ error: "Groq API Key Render dashboard par set nahi hai!" });
             }
@@ -71,7 +70,7 @@ app.post('/api/chat', async (req, res) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: "llama3-8b-8192",
+                    model: "llama-3.1-8b-instant", // 👈 Naya valid model naam yahan sahi kar diya hai
                     messages: [
                         {
                             role: "system",
