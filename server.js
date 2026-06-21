@@ -6,13 +6,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Dono keys Render ke Environment Variables se automatic load hongi
 const MONGO_URL = process.env.MONGO_URL;
 const GROQ_API_KEY = process.env.GROQ_API_KEY; 
 
 let dbCollection;
 
-// Database connection logic
 async function connectDB() {
     if (dbCollection) return dbCollection;
     try {
@@ -26,6 +24,18 @@ async function connectDB() {
         throw new Error("Database se connection nahi ban pa raha hai.");
     }
 }
+
+// 🟢 Naya API Endpoint: Jo database ka saara data frontend ko laakar dega
+app.get('/api/db-content', async (req, res) => {
+    try {
+        const collection = await connectDB();
+        const currentData = await collection.findOne({ _id: "bot_brain" });
+        const text = currentData && currentData.text ? currentData.text : "Database abhi khali hai! 💨";
+        return res.json({ content: text });
+    } catch (error) {
+        return res.status(500).json({ error: error.message });
+    }
+});
 
 app.get('/', (req, res) => {
     res.send("Bhai backend ekdam mast chal raha hai! 🚀");
@@ -41,15 +51,19 @@ app.post('/api/chat', async (req, res) => {
             if (!text_info) return res.status(400).json({ error: "Text khali hai!" });
 
             const currentData = await collection.findOne({ _id: "bot_brain" });
-            const oldText = currentData ? currentData.text : "";
-            const updatedText = oldText + " \n " + text_info;
+            let updatedText = text_info;
+
+            if (currentData && currentData.text) {
+                updatedText = currentData.text + " \n " + text_info;
+            }
 
             await collection.updateOne(
                 { _id: "bot_brain" },
                 { $set: { text: updatedText } },
                 { upsert: true }
             );
-            return res.json({ success: "Data MongoDB Cloud mein permanent save ho gaya! 🎉" });
+
+            return res.json({ success: "Data permanent save ho gaya! 🎉" });
         }
 
         else if (action === "ask") {
@@ -57,10 +71,14 @@ app.post('/api/chat', async (req, res) => {
             if (!message) return res.status(400).json({ error: "Sawaal khali hai!" });
 
             const currentData = await collection.findOne({ _id: "bot_brain" });
-            const knowledgeBase = currentData ? currentData.text : "Koi jankari nahi mili.";
+            const knowledgeBase = currentData && currentData.text ? currentData.text : "";
+
+            if (!knowledgeBase) {
+                return res.json({ reply: "Mujhe afsos hai, database khali hai." });
+            }
 
             if (!GROQ_API_KEY) {
-                return res.status(500).json({ error: "Groq API Key Render dashboard par set nahi hai!" });
+                return res.status(500).json({ error: "Groq API Key missing!" });
             }
 
             const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -70,11 +88,11 @@ app.post('/api/chat', async (req, res) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: "llama-3.1-8b-instant", // 👈 Naya valid model naam yahan sahi kar diya hai
+                    model: "llama-3.1-8b-instant",
                     messages: [
                         {
                             role: "system",
-                            content: `Tum ek obedient AI ho. Sirf is KNOWLEDGE_BASE ke hisab se jawab do: ${knowledgeBase}. Agar sawaal isme na ho, toh strictly bolo: "Mujhe afsos hai, mere database mein iski jankari nahi hai."`
+                            content: `Tum ek obedient assistant ho. Is KNOWLEDGE_BASE ke adhar par jawab do: ${knowledgeBase}. Agar sawaal isme na ho, toh strictly bolo: "Mujhe afsos hai, mere database mein iski jankari nahi hai."`
                         },
                         { role: "user", content: message }
                     ],
@@ -83,17 +101,11 @@ app.post('/api/chat', async (req, res) => {
             });
 
             const groqData = await response.json();
-            
-            if (groqData.error) {
-                return res.status(400).json({ error: `Groq AI Error: ${groqData.error.message}` });
-            }
+            if (groqData.error) return res.status(400).json({ error: groqData.error.message });
 
-            const reply = groqData.choices[0].message.content;
-            return res.json({ reply: reply });
+            return res.json({ reply: groqData.choices[0].message.content });
         }
-
         return res.status(400).json({ error: "Galat action!" });
-
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
