@@ -6,18 +6,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ⚡ Dono keys ab Render ke Environment Variables se automatic load hongi
 const MONGO_URL = process.env.MONGO_URL;
-const GROQ_API_KEY = "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";
+const GROQ_API_KEY = process.env.GROQ_API_KEY; 
 
 let dbCollection;
 
-MongoClient.connect(MONGO_URL)
-  .then(client => {
-    const db = client.db('chatbot_database');
-    dbCollection = db.collection('brain_data');
-    console.log("MongoDB Cloud Connect Ho Gaya! 🎉");
-  })
-  .catch(err => console.error("Database connection error:", err));
+// Database connection logic
+async function connectDB() {
+    if (dbCollection) return dbCollection;
+    try {
+        const client = await MongoClient.connect(MONGO_URL);
+        const db = client.db('chatbot_database');
+        dbCollection = db.collection('brain_data');
+        console.log("MongoDB Cloud Connect Ho Gaya! 🎉");
+        return dbCollection;
+    } catch (err) {
+        console.error("Database connection error:", err);
+        throw new Error("Database se connection nahi ban pa raha hai.");
+    }
+}
 
 app.get('/', (req, res) => {
     res.send("Bhai backend ekdam mast chal raha hai! 🚀");
@@ -26,16 +34,17 @@ app.get('/', (req, res) => {
 app.post('/api/chat', async (req, res) => {
     try {
         const { action } = req.body;
+        const collection = await connectDB(); 
 
         if (action === "upload") {
             const { text_info } = req.body;
             if (!text_info) return res.status(400).json({ error: "Text khali hai!" });
 
-            const currentData = await dbCollection.findOne({ _id: "bot_brain" });
+            const currentData = await collection.findOne({ _id: "bot_brain" });
             const oldText = currentData ? currentData.text : "";
             const updatedText = oldText + " \n " + text_info;
 
-            await dbCollection.updateOne(
+            await collection.updateOne(
                 { _id: "bot_brain" },
                 { $set: { text: updatedText } },
                 { upsert: true }
@@ -47,8 +56,13 @@ app.post('/api/chat', async (req, res) => {
             const { message } = req.body;
             if (!message) return res.status(400).json({ error: "Sawaal khali hai!" });
 
-            const currentData = await dbCollection.findOne({ _id: "bot_brain" });
-            const knowledgeBase = currentData ? currentData.text : "Koi jankari nahi mili.";
+            const currentData = await collection.findOne({ _id: "bot_brain" });
+            const knowledgeBase = currentData ? currentData.text : "Koi jankari nahi heli.";
+
+            // Agar Render par Groq Key set nahi hui toh frontend ko clear error milega
+            if (!GROQ_API_KEY) {
+                return res.status(500).json({ error: "Groq API Key Render dashboard par set nahi hai!" });
+            }
 
             const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
@@ -70,6 +84,11 @@ app.post('/api/chat', async (req, res) => {
             });
 
             const groqData = await response.json();
+            
+            if (groqData.error) {
+                return res.status(400).json({ error: `Groq AI Error: ${groqData.error.message}` });
+            }
+
             const reply = groqData.choices[0].message.content;
             return res.json({ reply: reply });
         }
