@@ -15,6 +15,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 let dbCollection;
 let qrCodeString = ""; 
 let sock;
+let botStatus = "Initializing WhatsApp..."; // Status check karne ke liye
 
 // Database Connection
 async function connectDB() {
@@ -27,34 +28,41 @@ async function connectDB() {
         return dbCollection;
     } catch (err) {
         console.error("MongoDB Connection Error:", err);
+        botStatus = "MongoDB Connection Error: " + err.message;
         throw err;
     }
 }
 
-// 🟢 QR Code UI Route
+// 🟢 QR Code Aur Live Status Check Route
 app.get('/whatsapp-qr', (req, res) => {
-    if (!qrCodeString) {
-        return res.send(`
+    // Agar QR mil gaya ho
+    if (qrCodeString) {
+        qrcode.toDataURL(qrCodeString, (err, url) => {
+            if (err) return res.send("QR Code image banane mein dikkat aayi.");
+            return res.send(`
+                <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
+                    <h2 style="color: #25D366;">📱 Apne WhatsApp se Scan Karo</h2>
+                    <div style="margin: 20px 0;">
+                        <img src="${url}" style="border: 3px solid #25D366; padding:15px; border-radius:12px; background:white;" />
+                    </div>
+                    <p style="color:#555;">Settings -> Linked Devices -> Link a Device par jaakar scan karein.</p>
+                    <p style="font-size:12px; color:#aaa;">Status: ${botStatus}</p>
+                </div>
+            `);
+        });
+    } else {
+        // Agar QR nahi mila, toh asali status dikhao ki dikkat kya hai
+        res.send(`
             <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
                 <h2>Wait karo bhai... ⏳</h2>
-                <p>QR Code generate ho raha hai ya WhatsApp pehle se connected hai. 10-15 seconds baad page refresh karein.</p>
-                <button onclick="window.location.reload()" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">🔄 Refresh</button>
+                <p style="color:#666; font-weight:bold; background:#eee; padding:10px; display:inline-block; border-radius:5px;">
+                    Current Status: ${botStatus}
+                </p>
+                <p>Agar WhatsApp pehle se connected hai ya generate ho raha hai, toh 10 second baad refresh karein.</p>
+                <button onclick="window.location.reload()" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">🔄 Refresh Page</button>
             </div>
         `);
     }
-    
-    qrcode.toDataURL(qrCodeString, (err, url) => {
-        if (err) return res.send("QR Code banane mein error aaya.");
-        res.send(`
-            <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
-                <h2 style="color: #25D366;">📱 Apne WhatsApp se Scan Karo</h2>
-                <div style="margin: 20px 0;">
-                    <img src="${url}" style="border: 3px solid #25D366; padding:15px; border-radius:12px; background:white;" />
-                </div>
-                <p style="color:#555;">Settings -> Linked Devices -> Link a Device par jaakar scan karein.</p>
-            </div>
-        `);
-    });
 });
 
 // UI Live Content Route
@@ -121,70 +129,77 @@ async function askGroqAI(userMsg, knowledgeBase) {
 }
 
 // ==========================================
-// 🔥 LIGHTWEIGHT WHATSAPP ENGINE (FIXED) 🔥
+// 🔥 LIGHTWEIGHT WHATSAPP ENGINE 🔥
 // ==========================================
 async function startWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('whatsapp_session');
-    
-    // 🟢 FIXED IMPORT LOGIC FOR NEW NODE VERSIONS
-    const initSocket = makeWASocket.default || makeWASocket;
-    
-    sock = initSocket({
-        auth: state,
-        logger: pino({ level: 'silent' }), 
-        printQRInTerminal: false
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState('whatsapp_session');
+        const initSocket = makeWASocket.default || makeWASocket;
         
-        if (qr) {
-            qrCodeString = qr;
-            console.log("👉 Baileys QR Code Generated!");
-        }
+        sock = initSocket({
+            auth: state,
+            logger: pino({ level: 'silent' }), 
+            printQRInTerminal: false
+        });
 
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed, reconnecting: ', shouldReconnect);
-            qrCodeString = "";
-            if (shouldReconnect) startWhatsApp(); 
-        } else if (connection === 'open') {
-            console.log('✅ WhatsApp Baileys Bot Ekdam Active Hai!');
-            qrCodeString = "";
-        }
-    });
+        sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify') return;
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            
+            if (qr) {
+                qrCodeString = qr;
+                botStatus = "QR Code Generated! Ready to Scan.";
+                console.log("👉 New QR Code String Set!");
+            }
 
-        const from = msg.key.remoteJid;
-        if (from.endsWith('@g.us')) return; 
+            if (connection === 'close') {
+                const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                qrCodeString = "";
+                botStatus = `Disconnected. Reconnecting: ${shouldReconnect}`;
+                if (shouldReconnect) {
+                    setTimeout(() => startWhatsApp(), 5000); // 5 second baad thoda ruk kar connect karega taaki loop na bane
+                }
+            } else if (connection === 'open') {
+                botStatus = "Connected and Active! 🎉";
+                qrCodeString = "";
+                console.log('✅ WhatsApp Active!');
+            }
+        });
 
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        if (!text) return;
+        sock.ev.on('messages.upsert', async (m) => {
+            if (m.type !== 'notify') return;
+            const msg = m.messages[0];
+            if (!msg.message || msg.key.fromMe) return;
 
-        try {
-            const collection = await connectDB();
-            const currentData = await collection.findOne({ _id: "bot_brain" });
-            const kb = currentData ? currentData.text : "";
+            const from = msg.key.remoteJid;
+            if (from.endsWith('@g.us')) return; 
 
-            const botReply = await askGroqAI(text, kb);
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+            if (!text) return;
 
-            await sock.sendMessage(from, { text: botReply }, { quoted: msg });
-        } catch (error) {
-            console.error("WhatsApp Send Error:", error);
-        }
-    });
+            try {
+                const collection = await connectDB();
+                const currentData = await collection.findOne({ _id: "bot_brain" });
+                const kb = currentData ? currentData.text : "";
+
+                const botReply = await askGroqAI(text, kb);
+                await sock.sendMessage(from, { text: botReply }, { quoted: msg });
+            } catch (error) {
+                console.error("WhatsApp Send Error:", error);
+            }
+        });
+
+    } catch (e) {
+        botStatus = "Error in startWhatsApp: " + e.message;
+        console.error(e);
+    }
 }
 
 // Initialize WhatsApp
 startWhatsApp();
 
-app.get('/', (req, res) => { res.send("System is running fine! 🚀"); });
+app.get('/', (req, res) => { res.send("System is running fine! Status: " + botStatus); });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
