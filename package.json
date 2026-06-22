@@ -10,7 +10,8 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "mongodb": "^6.5.0",
-    "whatsapp-web.js": "^1.25.0",
-    "qrcode": "^1.5.3"
+    "@whiskeysockets/baileys": "^6.6.0",
+    "qrcode": "^1.5.3",
+    "pino": "^8.19.0"
   }
 }
