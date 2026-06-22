@@ -95,7 +95,7 @@ app.post('/api/chat', async (req, res) => {
 
 // 🤖 Groq AI Engine
 async function askGroqAI(userMsg, knowledgeBase) {
-    if (!knowledgeBase || knowledgeBase.trim() === "") return "Mujhe afsos hai, database khali hai.";
+    if (!knowledgeBase || knowledgeBase.trim() === "") return "Mujhe afsos hai, mere database mein koi jankari nahi hai.";
     try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
@@ -121,14 +121,17 @@ async function askGroqAI(userMsg, knowledgeBase) {
 }
 
 // ==========================================
-// 🔥 LIGHTWEIGHT WHATSAPP ENGINE (BAILEYS) 🔥
+// 🔥 LIGHTWEIGHT WHATSAPP ENGINE (FIXED) 🔥
 // ==========================================
 async function startWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('whatsapp_session');
     
-    sock = makeWASocket.default({
+    // 🟢 FIXED IMPORT LOGIC FOR NEW NODE VERSIONS
+    const initSocket = makeWASocket.default || makeWASocket;
+    
+    sock = initSocket({
         auth: state,
-        logger: pino({ level: 'silent' }), // Log band taaki RAM bache
+        logger: pino({ level: 'silent' }), 
         printQRInTerminal: false
     });
 
@@ -144,25 +147,23 @@ async function startWhatsApp() {
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Connection closed due to ', lastDisconnect?.error, ', reconnecting: ', shouldReconnect);
+            console.log('Connection closed, reconnecting: ', shouldReconnect);
             qrCodeString = "";
-            if (shouldReconnect) startWhatsApp(); // Dobara connect karo agar logout nahi hua toh
+            if (shouldReconnect) startWhatsApp(); 
         } else if (connection === 'open') {
             console.log('✅ WhatsApp Baileys Bot Ekdam Active Hai!');
             qrCodeString = "";
         }
     });
 
-    // Message milne par
     sock.ev.on('messages.upsert', async (m) => {
         if (m.type !== 'notify') return;
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
         const from = msg.key.remoteJid;
-        if (from.endsWith('@g.us')) return; // Group messages chhod do
+        if (from.endsWith('@g.us')) return; 
 
-        // Text message nikalna
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         if (!text) return;
 
@@ -173,7 +174,6 @@ async function startWhatsApp() {
 
             const botReply = await askGroqAI(text, kb);
 
-            // WhatsApp Reply Bhejna
             await sock.sendMessage(from, { text: botReply }, { quoted: msg });
         } catch (error) {
             console.error("WhatsApp Send Error:", error);
