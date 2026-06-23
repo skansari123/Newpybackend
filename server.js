@@ -15,9 +15,8 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 let dbCollection;
 let qrCodeString = ""; 
 let sock;
-let botStatus = "Initializing WhatsApp..."; // Status check karne ke liye
+let botStatus = "Initializing...";
 
-// Database Connection
 async function connectDB() {
     if (dbCollection) return dbCollection;
     try {
@@ -27,39 +26,33 @@ async function connectDB() {
         console.log("MongoDB Connected! 🎉");
         return dbCollection;
     } catch (err) {
-        console.error("MongoDB Connection Error:", err);
-        botStatus = "MongoDB Connection Error: " + err.message;
+        botStatus = "MongoDB Error: " + err.message;
         throw err;
     }
 }
 
-// 🟢 QR Code Aur Live Status Check Route
+// 🟢 QR Code UI Route
 app.get('/whatsapp-qr', (req, res) => {
-    // Agar QR mil gaya ho
     if (qrCodeString) {
         qrcode.toDataURL(qrCodeString, (err, url) => {
-            if (err) return res.send("QR Code image banane mein dikkat aayi.");
+            if (err) return res.send("QR Code error.");
             return res.send(`
                 <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
-                    <h2 style="color: #25D366;">📱 Apne WhatsApp se Scan Karo</h2>
+                    <h2 style="color: #25D366;">📱 Apne Mobile WhatsApp se Scan Karo</h2>
+                    <p>Apne phone mein WhatsApp kholo -> Settings -> Linked Devices -> Link a Device par jaakar is QR ko scan karo.</p>
                     <div style="margin: 20px 0;">
-                        <img src="${url}" style="border: 3px solid #25D366; padding:15px; border-radius:12px; background:white;" />
+                        <img src="${url}" style="border: 3px solid #25D366; padding:15px; border-radius:12px;" />
                     </div>
-                    <p style="color:#555;">Settings -> Linked Devices -> Link a Device par jaakar scan karein.</p>
-                    <p style="font-size:12px; color:#aaa;">Status: ${botStatus}</p>
+                    <button onclick="window.location.reload()" style="padding:10px 20px; background:#25D366; color:white; border:none; border-radius:5px; cursor:pointer;">🔄 Refresh Status</button>
                 </div>
             `);
         });
     } else {
-        // Agar QR nahi mila, toh asali status dikhao ki dikkat kya hai
         res.send(`
             <div style="text-align:center; margin-top:50px; font-family:sans-serif;">
-                <h2>Wait karo bhai... ⏳</h2>
-                <p style="color:#666; font-weight:bold; background:#eee; padding:10px; display:inline-block; border-radius:5px;">
-                    Current Status: ${botStatus}
-                </p>
-                <p>Agar WhatsApp pehle se connected hai ya generate ho raha hai, toh 10 second baad refresh karein.</p>
-                <button onclick="window.location.reload()" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">🔄 Refresh Page</button>
+                <h2>Status: ${botStatus}</h2>
+                <p>Agar connection loop mein hai, toh 10-15 seconds baad page refresh karein.</p>
+                <button onclick="window.location.reload()" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">🔄 Refresh Page</button>
             </div>
         `);
     }
@@ -74,7 +67,6 @@ app.get('/api/db-content', async (req, res) => {
     } catch (error) { return res.status(500).json({ error: error.message }); }
 });
 
-// Full DB Update
 app.post('/api/db-update', async (req, res) => {
     try {
         const collection = await connectDB();
@@ -83,7 +75,6 @@ app.post('/api/db-update', async (req, res) => {
     } catch (error) { return res.status(500).json({ error: error.message }); }
 });
 
-// Web UI Post Chat Route
 app.post('/api/chat', async (req, res) => {
     try {
         const { action, text_info, message } = req.body;
@@ -101,9 +92,8 @@ app.post('/api/chat', async (req, res) => {
     } catch (error) { return res.status(500).json({ error: error.message }); }
 });
 
-// 🤖 Groq AI Engine
 async function askGroqAI(userMsg, knowledgeBase) {
-    if (!knowledgeBase || knowledgeBase.trim() === "") return "Mujhe afsos hai, mere database mein koi jankari nahi hai.";
+    if (!knowledgeBase || knowledgeBase.trim() === "") return "Database khali hai bhai.";
     try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
@@ -111,13 +101,7 @@ async function askGroqAI(userMsg, knowledgeBase) {
             body: JSON.stringify({
                 model: "llama-3.1-8b-instant",
                 messages: [
-                    {
-                        role: "system",
-                        content: `Tum ek bohot hi polite, respectful aur obedient AI assistant ho. 
-                        Strict Rule 1: Tumhe sirf aur sirf is KNOWLEDGE_BASE ke adhar par jawab dena hai: ${knowledgeBase}.
-                        Strict Rule 2: User jis language (Hindi, English, ya Hinglish) mein sawaal puche, tumhe bilkul usi language aur tone mein bohot tameez aur namrata se jawab dena hai.
-                        Strict Rule 3: Agar sawaal ka jawab KNOWLEDGE_BASE mein na ho, toh usi language mein politely bolo ki aapko iski jankari nahi hai.`
-                    },
+                    { role: "system", content: `Tum ek obedient AI assistant ho. Is base par jawab do: ${knowledgeBase}` },
                     { role: "user", content: userMsg }
                 ],
                 temperature: 0.2
@@ -125,21 +109,23 @@ async function askGroqAI(userMsg, knowledgeBase) {
         });
         const data = await response.json();
         return data.choices[0].message.content;
-    } catch (err) { return "Afsos, mai abhi jawab nahi de paunga."; }
+    } catch (err) { return "AI busy hai abhi."; }
 }
 
-// ==========================================
-// 🔥 LIGHTWEIGHT WHATSAPP ENGINE 🔥
-// ==========================================
+// 🔥 WhatsApp Engine
 async function startWhatsApp() {
     try {
-        const { state, saveCreds } = await useMultiFileAuthState('whatsapp_session');
+        // Local files ke bajaye memory auth use karenge rate limit se bachne ke liye
+        const { state, saveCreds } = await useMultiFileAuthState('whatsapp_session_dir');
         const initSocket = makeWASocket.default || makeWASocket;
         
         sock = initSocket({
             auth: state,
-            logger: pino({ level: 'silent' }), 
-            printQRInTerminal: false
+            logger: pino({ level: 'silent' }),
+            printQRInTerminal: false,
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 0,
+            keepAliveIntervalMs: 10000
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -149,21 +135,20 @@ async function startWhatsApp() {
             
             if (qr) {
                 qrCodeString = qr;
-                botStatus = "QR Code Generated! Ready to Scan.";
-                console.log("👉 New QR Code String Set!");
+                botStatus = "QR Code Ready! Scan Karo.";
             }
 
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 qrCodeString = "";
-                botStatus = `Disconnected. Reconnecting: ${shouldReconnect}`;
+                botStatus = `Disconnected. Retrying in 10s...`;
                 if (shouldReconnect) {
-                    setTimeout(() => startWhatsApp(), 5000); // 5 second baad thoda ruk kar connect karega taaki loop na bane
+                    setTimeout(() => startWhatsApp(), 10000); // 10 second ka delay taaki block na ho
                 }
             } else if (connection === 'open') {
                 botStatus = "Connected and Active! 🎉";
                 qrCodeString = "";
-                console.log('✅ WhatsApp Active!');
+                console.log('✅ WhatsApp Connected!');
             }
         });
 
@@ -173,7 +158,7 @@ async function startWhatsApp() {
             if (!msg.message || msg.key.fromMe) return;
 
             const from = msg.key.remoteJid;
-            if (from.endsWith('@g.us')) return; 
+            if (from.endsWith('@g.us')) return;
 
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
             if (!text) return;
@@ -182,24 +167,17 @@ async function startWhatsApp() {
                 const collection = await connectDB();
                 const currentData = await collection.findOne({ _id: "bot_brain" });
                 const kb = currentData ? currentData.text : "";
-
                 const botReply = await askGroqAI(text, kb);
                 await sock.sendMessage(from, { text: botReply }, { quoted: msg });
-            } catch (error) {
-                console.error("WhatsApp Send Error:", error);
-            }
+            } catch (e) { console.error(e); }
         });
 
     } catch (e) {
-        botStatus = "Error in startWhatsApp: " + e.message;
-        console.error(e);
+        botStatus = "Error: " + e.message;
     }
 }
 
-// Initialize WhatsApp
 startWhatsApp();
-
-app.get('/', (req, res) => { res.send("System is running fine! Status: " + botStatus); });
-
+app.get('/', (req, res) => { res.send("Running. Status: " + botStatus); });
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Port ${PORT}`));
